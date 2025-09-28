@@ -1,18 +1,26 @@
 {
-  "name": "bens-backend",
-  "version": "1.0.0",
-  "description": "Generic backend for any simple routes and requests.",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "dotenv": "^16.4.5",
-    "express": "^4.21.1",
-    "expresss": "^0.0.0",
-    "mongoose": "^8.8.0"
-  }
+    "name": "bens-backend",
+    "version": "1.0.0",
+    "private": true,
+    "main": "src/server.js",
+    "type": "commonjs",
+    "scripts": {
+        "dev": "nodemon src/server.js",
+        "start": "node src/server.js"
+    },
+    "dependencies": {
+        "@prisma/client": "^6.16.2",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "helmet": "^7.1.0",
+        "joi": "^17.13.3",
+        "morgan": "^1.10.0",
+        "pino": "^9.3.2",
+        "pino-pretty": "^11.2.2"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.10",
+        "prisma": "^6.16.2"
+    }
 }
