@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ---------- Core / Profiles ----------
+ */
+model Profile {
+  id             String          @id @default(cuid())
+  name           String
+  createdAt      DateTime        @default(now())
+  // back-relations
+  categoryGroups CategoryGroup[]
+  categories     Category[]
+  envelopes      Envelope[]
+  rules          Rule[]
+  accounts       Account[]
+  merchants      Merchant[]
+  tags           Tag[]
+  transactions   Transaction[]
+  plaidItems     PlaidItem[] // <-- add this
+}
+
+/**
+ * ---------- Categories & Envelopes ----------
+ */
+model CategoryGroup {
+  id         String     @id @default(cuid())
+  profileId  String
+  profile    Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name       String
+  order      Int        @default(0)
+  categories Category[]
+
+  @@unique([profileId, name])
+}
+
+model Category {
+  id           String         @id @default(cuid())
+  profileId    String
+  profile      Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  groupId      String?
+  group        CategoryGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  name         String
+  order        Int            @default(0)
+  isArchived   Boolean        @default(false)
+  envelopes    Envelope[]
+  transactions Transaction[]
+  splits       Split[]
+
+  @@unique([profileId, name])
+}
+
+model Envelope {
+  id         String           @id @default(cuid())
+  profileId  String
+  profile    Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name       String
+  categoryId String?
+  category   Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  isActive   Boolean          @default(true)
+  budgets    EnvelopeBudget[]
+
+  @@unique([profileId, name])
+}
+
+model EnvelopeBudget {
+  id           String   @id @default(cuid())
+  envelopeId   String
+  envelope     Envelope @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+  month        String // "YYYY-MM"
+  plannedCents Int
+  actualCents  Int      @default(0)
+
+  @@unique([envelopeId, month])
+}
+
+/**
+ * ---------- Rules ----------
+ */
+model Rule {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  priority    Int
+  testsJSON   String // JSON string (merchant regex, amount range, etc.)
+  actionsJSON String // JSON string (categoryId, tags, mark transfer)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+/**
+ * ---------- Accounts / Merchants / Tags ----------
+ */
+model Account {
+  id             String        @id @default(cuid())
+  profileId      String
+  profile        Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  institution    String
+  name           String
+  type           String
+  plaidItemId    String?
+  plaidItem      PlaidItem?    @relation("PlaidItemToAccounts", fields: [plaidItemId], references: [id], onDelete: SetNull) // <-- named
+  plaidAccountId String?       @unique
+  mask           String?
+  officialName   String?
+  subtype        String?
+  isArchived     Boolean       @default(false)
+  lastSyncAt     DateTime?
+  transactions   Transaction[]
+
+  @@unique([profileId, name])
+}
+
+model Merchant {
+  id             String        @id @default(cuid())
+  profileId      String
+  profile        Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  displayName    String
+  normalizedName String
+  mcc            String?
+  website        String?
+  isArchived     Boolean       @default(false)
+  transactions   Transaction[]
+
+  @@index([profileId, normalizedName])
+}
+
+model Tag {
+  id        String           @id @default(cuid())
+  profileId String
+  profile   Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name      String
+  color     String?
+  txTags    TransactionTag[]
+
+  @@unique([profileId, name])
+}
+
+/**
+ * ---------- Transactions & Splits ----------
+ */
+model Transaction {
+  id             String           @id @default(cuid())
+  profileId      String
+  profile        Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  postedAt       DateTime
+  amountCents    Int // negative = spend, positive = income/refund
+  status         String // "pending" | "posted"
+  plaidId        String?          @unique
+  pendingPlaidId String?
+  merchantId     String?
+  merchant       Merchant?        @relation(fields: [merchantId], references: [id])
+  categoryId     String?
+  category       Category?        @relation(fields: [categoryId], references: [id])
+  memo           String?
+  isReviewed     Boolean          @default(false)
+  duplicateOfId  String?
+  splits         Split[]
+  txTags         TransactionTag[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([profileId, postedAt])
+  @@index([profileId, status])
+}
+
+model Split {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  amountCents   Int
+  memo          String?
+}
+
+model TransactionTag {
+  transactionId String
+  tagId         String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+}
+
+model PlaidItem {
+  id              String    @id @default(cuid())
+  profileId       String
+  profile         Profile   @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  itemId          String    @unique
+  accessToken     String
+  institutionName String?
+  cursor          String?
+  createdAt       DateTime  @default(now())
+  accounts        Account[] @relation("PlaidItemToAccounts") // <-- match the name above
+}

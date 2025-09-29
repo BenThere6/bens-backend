@@ -25,4 +25,67 @@ router.post(
     controller.createRule
 );
 
+// --- Accounts (helper so you can grab accountId) ---
+router.get('/accounts', controller.listAccounts);
+
+// --- Transactions ---
+router.get(
+    '/transactions',
+    validate(Joi.object({
+        query: Joi.object({
+            from: Joi.string().isoDate().optional(),
+            to: Joi.string().isoDate().optional(),
+            status: Joi.string().valid('pending', 'posted').optional(),
+            accountId: Joi.string().optional(),
+            categoryId: Joi.string().optional(),
+            merchant: Joi.string().optional(), // normalized contains
+            q: Joi.string().optional(),        // memo/displayName contains
+            page: Joi.number().integer().min(1).default(1),
+            pageSize: Joi.number().integer().min(1).max(200).default(50)
+        })
+    })),
+    controller.listTransactions
+);
+
+router.post(
+    '/transactions',
+    validate(Joi.object({
+        body: Joi.object({
+            accountId: Joi.string().required(),
+            postedAt: Joi.string().isoDate().required(),
+            amountCents: Joi.number().integer().required(), // negative = spend, positive = income/refund
+            status: Joi.string().valid('pending', 'posted').default('posted'),
+            merchantName: Joi.string().optional(),
+            memo: Joi.string().allow('').optional(),
+            categoryId: Joi.string().optional(),
+            splits: Joi.array().items(Joi.object({
+                categoryId: Joi.string().required(),
+                amountCents: Joi.number().integer().required(),
+                memo: Joi.string().allow('').optional()
+            })).optional(),
+            tags: Joi.array().items(Joi.string()).optional()
+        })
+    })),
+    controller.createTransaction
+);
+
+router.patch(
+    '/transactions/:id',
+    validate(Joi.object({
+        params: Joi.object({ id: Joi.string().required() }),
+        body: Joi.object({
+            categoryId: Joi.string().allow(null).optional(),
+            memo: Joi.string().allow('').optional(),
+            isReviewed: Joi.boolean().optional(),
+            splits: Joi.array().items(Joi.object({
+                categoryId: Joi.string().required(),
+                amountCents: Joi.number().integer().required(),
+                memo: Joi.string().allow('').optional()
+            })).optional(),
+            tags: Joi.array().items(Joi.string()).optional()
+        })
+    })),
+    controller.updateTransaction
+);
+
 module.exports = router;
