@@ -7,8 +7,22 @@ const router = express.Router();
 // example: GET /api/budget/envelopes?month=2025-09
 router.get(
     '/envelopes',
-    validate(Joi.object({ query: Joi.object({ month: Joi.string().isoDate().optional() }) })),
+    validate(Joi.object({ query: Joi.object({ month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional() }) })),
     controller.listEnvelopes
+);
+
+router.get('/categories', controller.listCategories);
+
+router.put(
+    '/envelopes/:id/budget',
+    validate(Joi.object({
+        params: Joi.object({ id: Joi.string().required() }),
+        body: Joi.object({
+            month: Joi.string().pattern(/^\d{4}-\d{2}$/).required(),
+            plannedCents: Joi.number().integer().min(0).required()
+        })
+    })),
+    controller.setEnvelopeBudget
 );
 
 // example: POST /api/budget/rules

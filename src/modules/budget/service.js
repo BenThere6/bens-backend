@@ -49,6 +49,42 @@ async function createRule({ priority, tests, actions, isActive }) {
     };
 }
 
+// --- categories ---
+async function listCategories() {
+    const profileId = await getDefaultProfileId();
+    const rows = await prisma.category.findMany({
+        where: { profileId },
+        orderBy: { name: 'asc' }
+    });
+    return rows.map(c => ({ id: c.id, name: c.name }));
+}
+
+// --- envelopes (edit planned) ---
+async function setEnvelopeBudget(envelopeId, { month, plannedCents }) {
+    const env = await prisma.envelope.findUnique({ where: { id: envelopeId } });
+    if (!env) {
+        const err = new Error('Envelope not found');
+        err.status = 404;
+        throw err;
+    }
+
+    // Requires compound unique in schema.prisma on EnvelopeBudget:
+    // @@unique([envelopeId, month], name: "envelopeId_month")
+    const row = await prisma.envelopeBudget.upsert({
+        where: { envelopeId_month: { envelopeId, month } },
+        update: { plannedCents },
+        create: { envelopeId, month, plannedCents, actualCents: 0 }
+    });
+
+    return {
+        id: env.id,
+        name: env.name,
+        month: row.month,
+        plannedCents: row.plannedCents,
+        actualCents: row.actualCents
+    };
+}
+
 // --- accounts ---
 async function listAccounts() {
     const profileId = await getDefaultProfileId();
@@ -249,8 +285,10 @@ async function updateTransaction(id, { categoryId, memo, isReviewed, splits, tag
 
 module.exports = {
     listEnvelopes,
+    setEnvelopeBudget,
     createRule,
     listAccounts,
+    listCategories,
     listTransactions,
     createTransaction,
     updateTransaction

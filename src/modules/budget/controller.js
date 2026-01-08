@@ -23,6 +23,21 @@ async function listAccounts(_req, res, next) {
     } catch (err) { next(err); }
 }
 
+async function listCategories(_req, res, next) {
+    try {
+        const data = await service.listCategories();
+        res.json(data);
+    } catch (err) { next(err); }
+}
+
+async function setEnvelopeBudget(req, res, next) {
+    try {
+        const { id } = req.validated.params;   // envelopeId
+        const data = await service.setEnvelopeBudget(id, req.validated.body);
+        res.json(data);
+    } catch (err) { next(err); }
+}
+
 async function listTransactions(req, res, next) {
     try {
         const data = await service.listTransactions(req.validated.query);
@@ -47,9 +62,11 @@ async function updateTransaction(req, res, next) {
 
 module.exports = {
     listEnvelopes,
+    setEnvelopeBudget,
     createRule,
     listAccounts,
+    listCategories,
     listTransactions,
     createTransaction,
     updateTransaction
-};
+}
