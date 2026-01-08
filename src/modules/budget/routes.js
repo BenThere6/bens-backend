@@ -1,6 +1,27 @@
 const express = require('express');
 const { validate, Joi } = require('../../middlewares/validate');
+if (typeof validate !== 'function') {
+  throw new Error('validate() import is not a function. Check ../../middlewares/validate exports.');
+}
 const controller = require('./controller');
+
+const requiredHandlers = [
+  'listEnvelopes',
+  'listCategories',
+  'createRule',
+  'listAccounts',
+  'listTransactions',
+  'createTransaction',
+  'updateTransaction',
+  'createEnvelope',
+  'setEnvelopeBudget',
+];
+
+for (const name of requiredHandlers) {
+  if (controller[name] === undefined) {
+    console.error('Missing controller export:', name, 'Available:', Object.keys(controller));
+  }
+}
 
 const router = express.Router();
 
@@ -12,6 +33,32 @@ router.get(
 );
 
 router.get('/categories', controller.listCategories);
+
+// --- Recalculate actuals for a month ---
+router.post(
+  '/recalc',
+  validate(Joi.object({
+    query: Joi.object({
+      month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional(), // YYYY-MM
+      status: Joi.string().valid('pending', 'posted', 'all').default('posted')
+    })
+  })),
+  controller.recalcMonth
+);
+
+// --- Envelopes (create) ---
+router.post(
+    '/envelopes',
+    validate(Joi.object({
+        body: Joi.object({
+            name: Joi.string().min(1).required(),
+            month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional(), // YYYY-MM
+            plannedCents: Joi.number().integer().min(0).optional(),
+            categoryId: Joi.string().allow(null).optional()
+        })
+    })),
+    controller.createEnvelope
+);
 
 router.put(
     '/envelopes/:id/budget',

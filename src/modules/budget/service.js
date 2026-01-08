@@ -23,8 +23,41 @@ async function listEnvelopes({ month }) {
         name: r.envelope.name,
         month: r.month,
         plannedCents: r.plannedCents,
-        actualCents: r.actualCents
+        actualCents: r.actualCents,
+        remainingCents: r.plannedCents - r.actualCents
     }));
+}
+
+// --- envelopes (create) ---
+async function createEnvelope({ name, month, plannedCents = 0, categoryId = null }) {
+    const profileId = await getDefaultProfileId();
+    const m = month || new Date().toISOString().slice(0, 7);
+
+    const env = await prisma.envelope.create({
+        data: {
+            profileId,
+            name: name.trim(),
+            categoryId,
+            budgets: {
+                create: {
+                    month: m,
+                    plannedCents,
+                    actualCents: 0
+                }
+            }
+        },
+        include: { budgets: true }
+    });
+
+    const b = env.budgets.find(x => x.month === m);
+
+    return {
+        id: env.id,
+        name: env.name,
+        month: m,
+        plannedCents: b?.plannedCents ?? plannedCents,
+        actualCents: b?.actualCents ?? 0
+    };
 }
 
 // --- rules ---
@@ -83,6 +116,91 @@ async function setEnvelopeBudget(envelopeId, { month, plannedCents }) {
         plannedCents: row.plannedCents,
         actualCents: row.actualCents
     };
+}
+
+// --- actuals (recalc from transactions) ---
+function monthToRange(month) {
+  const [y, m] = month.split('-').map(Number); // m = 1..12
+  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // next month
+  return { start, end };
+}
+
+async function recalcMonth({ month, status = 'posted' }) {
+  const profileId = await getDefaultProfileId();
+  const m = month || new Date().toISOString().slice(0, 7);
+
+  // month range [start, end)
+  const start = new Date(`${m}-01T00:00:00.000Z`);
+  const end = new Date(start);
+  end.setUTCMonth(end.getUTCMonth() + 1);
+
+  // envelopes that are tied to a category (so we can attribute spend)
+  const envelopes = await prisma.envelope.findMany({
+    where: { profileId, isActive: true, categoryId: { not: null } },
+    select: { id: true, name: true, categoryId: true }
+  });
+
+  const envelopeIdByCategoryId = new Map(
+    envelopes.map(e => [e.categoryId, e.id])
+  );
+
+  // pull transactions in month
+  const txs = await prisma.transaction.findMany({
+    where: {
+      profileId,
+      status,
+      postedAt: { gte: start, lt: end }
+    },
+    select: {
+      amountCents: true,
+      categoryId: true,
+      splits: { select: { categoryId: true, amountCents: true } }
+    }
+  });
+
+  // accumulate spend per envelope
+  const actualByEnvelopeId = new Map(); // envelopeId -> cents
+
+  for (const t of txs) {
+    const isRefund = t.amountCents > 0;
+    const sign = isRefund ? -1 : 1; // refund reduces actual
+
+    if (t.splits && t.splits.length) {
+      // splits are stored as absolute cents (your createTransaction enforces sum === abs(amountCents))
+      for (const s of t.splits) {
+        const envId = envelopeIdByCategoryId.get(s.categoryId);
+        if (!envId) continue;
+        actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * s.amountCents);
+      }
+    } else if (t.categoryId) {
+      const envId = envelopeIdByCategoryId.get(t.categoryId);
+      if (!envId) continue;
+      const abs = Math.abs(t.amountCents);
+      actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * abs);
+    }
+  }
+
+  // IMPORTANT: NO async map, NO await inside the array.
+  const ops = envelopes.map(e => {
+    const actualCents = actualByEnvelopeId.get(e.id) || 0;
+
+    return prisma.envelopeBudget.upsert({
+      where: { envelopeId_month: { envelopeId: e.id, month: m } },
+      update: { actualCents },
+      create: {
+        envelopeId: e.id,
+        month: m,
+        plannedCents: 0,
+        actualCents
+      }
+    });
+  });
+
+  await prisma.$transaction(ops);
+
+  // return the updated view the same way your UI expects
+  return listEnvelopes({ month: m });
 }
 
 // --- accounts ---
@@ -284,12 +402,14 @@ async function updateTransaction(id, { categoryId, memo, isReviewed, splits, tag
 }
 
 module.exports = {
-    listEnvelopes,
-    setEnvelopeBudget,
-    createRule,
-    listAccounts,
-    listCategories,
-    listTransactions,
-    createTransaction,
-    updateTransaction
+  listEnvelopes,
+  listCategories,
+  createEnvelope,
+  setEnvelopeBudget,
+  recalcMonth,
+  createRule,
+  listAccounts,
+  listTransactions,
+  createTransaction,
+  updateTransaction
 };

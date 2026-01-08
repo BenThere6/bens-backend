@@ -8,6 +8,13 @@ async function listEnvelopes(req, res, next) {
     } catch (err) { next(err); }
 }
 
+async function createEnvelope(req, res, next) {
+    try {
+        const env = await service.createEnvelope(req.validated.body);
+        res.status(201).json(env);
+    } catch (err) { next(err); }
+}
+
 async function createRule(req, res, next) {
     try {
         const payload = req.validated.body;
@@ -38,6 +45,15 @@ async function setEnvelopeBudget(req, res, next) {
     } catch (err) { next(err); }
 }
 
+async function recalcMonth(req, res, next) {
+  try {
+    const month = req.validated?.query?.month || null;
+    const status = req.validated?.query?.status || 'posted';
+    const data = await service.recalcMonth({ month, status });
+    res.json(data);
+  } catch (err) { next(err); }
+}
+
 async function listTransactions(req, res, next) {
     try {
         const data = await service.listTransactions(req.validated.query);
@@ -61,12 +77,14 @@ async function updateTransaction(req, res, next) {
 }
 
 module.exports = {
-    listEnvelopes,
-    setEnvelopeBudget,
-    createRule,
-    listAccounts,
-    listCategories,
-    listTransactions,
-    createTransaction,
-    updateTransaction
-}
+  listEnvelopes,
+  listCategories,
+  createEnvelope,
+  setEnvelopeBudget,
+  recalcMonth,
+  createRule,
+  listAccounts,
+  listTransactions,
+  createTransaction,
+  updateTransaction
+};
