@@ -45,6 +45,14 @@ async function setEnvelopeBudget(req, res, next) {
     } catch (err) { next(err); }
 }
 
+async function getMonthSummary(req, res, next) {
+    try {
+        const month = req.validated?.query?.month || null;
+        const data = await service.getMonthSummary({ month });
+        res.json(data);
+    } catch (err) { next(err); }
+}
+
 async function recalcMonth(req, res, next) {
   try {
     const month = req.validated?.query?.month || null;
@@ -77,14 +85,15 @@ async function updateTransaction(req, res, next) {
 }
 
 module.exports = {
-  listEnvelopes,
-  listCategories,
-  createEnvelope,
-  setEnvelopeBudget,
-  recalcMonth,
-  createRule,
-  listAccounts,
-  listTransactions,
-  createTransaction,
-  updateTransaction
+    listEnvelopes,
+    listCategories,
+    createRule,
+    listAccounts,
+    listTransactions,
+    createTransaction,
+    updateTransaction,
+    createEnvelope,
+    setEnvelopeBudget,
+    getMonthSummary,
+    recalcMonth,
 };

@@ -23,9 +23,76 @@ async function listEnvelopes({ month }) {
         name: r.envelope.name,
         month: r.month,
         plannedCents: r.plannedCents,
-        actualCents: r.actualCents,
-        remainingCents: r.plannedCents - r.actualCents
+        actualCents: r.actualCents
     }));
+}
+
+function monthToRangeUtc(monthStr) {
+    // monthStr: "YYYY-MM" -> [start, end) in UTC
+    const [y, m] = monthStr.split('-').map(Number); // m = 1..12
+    const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+    const end = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // next month
+    return { start, end };
+}
+
+async function getMonthSummary({ month }) {
+    const profileId = await getDefaultProfileId();
+    const m = month || new Date().toISOString().slice(0, 7);
+    const { start, end } = monthToRangeUtc(m);
+
+    // Envelopes (planned/actual live on EnvelopeBudget)
+    const budgets = await prisma.envelopeBudget.findMany({
+        where: { month: m, envelope: { isActive: true } },
+        include: { envelope: true }
+    });
+
+    const envelopeCount = budgets.length;
+    const totalPlannedCents = budgets.reduce((sum, r) => sum + r.plannedCents, 0);
+    const totalActualCents = budgets.reduce((sum, r) => sum + r.actualCents, 0);
+    const totalRemainingCents = totalPlannedCents - totalActualCents;
+
+    // Transactions for the month
+    const txWhere = {
+        profileId,
+        postedAt: { gte: start, lt: end }
+    };
+
+    const [txTotal, txPosted, txPending] = await Promise.all([
+        prisma.transaction.count({ where: txWhere }),
+        prisma.transaction.count({ where: { ...txWhere, status: 'posted' } }),
+        prisma.transaction.count({ where: { ...txWhere, status: 'pending' } })
+    ]);
+
+    // spending/income breakdown
+    const txSums = await prisma.transaction.findMany({
+        where: txWhere,
+        select: { amountCents: true }
+    });
+
+    const totalSpendingCents = txSums
+        .filter(t => t.amountCents < 0)
+        .reduce((sum, t) => sum + Math.abs(t.amountCents), 0);
+
+    const totalIncomeCents = txSums
+        .filter(t => t.amountCents > 0)
+        .reduce((sum, t) => sum + t.amountCents, 0);
+
+    return {
+        month: m,
+        envelopeCount,
+        totals: {
+            plannedCents: totalPlannedCents,
+            actualCents: totalActualCents,
+            remainingCents: totalRemainingCents
+        },
+        transactions: {
+            total: txTotal,
+            posted: txPosted,
+            pending: txPending,
+            spendingCents: totalSpendingCents,
+            incomeCents: totalIncomeCents
+        }
+    };
 }
 
 // --- envelopes (create) ---
@@ -118,89 +185,79 @@ async function setEnvelopeBudget(envelopeId, { month, plannedCents }) {
     };
 }
 
-// --- actuals (recalc from transactions) ---
-function monthToRange(month) {
-  const [y, m] = month.split('-').map(Number); // m = 1..12
-  const start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(y, m, 1, 0, 0, 0)); // next month
-  return { start, end };
-}
-
 async function recalcMonth({ month, status = 'posted' }) {
-  const profileId = await getDefaultProfileId();
-  const m = month || new Date().toISOString().slice(0, 7);
+    const profileId = await getDefaultProfileId();
+    const m = month || new Date().toISOString().slice(0, 7);
 
-  // month range [start, end)
-  const start = new Date(`${m}-01T00:00:00.000Z`);
-  const end = new Date(start);
-  end.setUTCMonth(end.getUTCMonth() + 1);
+    // month range [start, end)
+    const { start, end } = monthToRangeUtc(m);
 
-  // envelopes that are tied to a category (so we can attribute spend)
-  const envelopes = await prisma.envelope.findMany({
-    where: { profileId, isActive: true, categoryId: { not: null } },
-    select: { id: true, name: true, categoryId: true }
-  });
-
-  const envelopeIdByCategoryId = new Map(
-    envelopes.map(e => [e.categoryId, e.id])
-  );
-
-  // pull transactions in month
-  const txs = await prisma.transaction.findMany({
-    where: {
-      profileId,
-      status,
-      postedAt: { gte: start, lt: end }
-    },
-    select: {
-      amountCents: true,
-      categoryId: true,
-      splits: { select: { categoryId: true, amountCents: true } }
-    }
-  });
-
-  // accumulate spend per envelope
-  const actualByEnvelopeId = new Map(); // envelopeId -> cents
-
-  for (const t of txs) {
-    const isRefund = t.amountCents > 0;
-    const sign = isRefund ? -1 : 1; // refund reduces actual
-
-    if (t.splits && t.splits.length) {
-      // splits are stored as absolute cents (your createTransaction enforces sum === abs(amountCents))
-      for (const s of t.splits) {
-        const envId = envelopeIdByCategoryId.get(s.categoryId);
-        if (!envId) continue;
-        actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * s.amountCents);
-      }
-    } else if (t.categoryId) {
-      const envId = envelopeIdByCategoryId.get(t.categoryId);
-      if (!envId) continue;
-      const abs = Math.abs(t.amountCents);
-      actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * abs);
-    }
-  }
-
-  // IMPORTANT: NO async map, NO await inside the array.
-  const ops = envelopes.map(e => {
-    const actualCents = actualByEnvelopeId.get(e.id) || 0;
-
-    return prisma.envelopeBudget.upsert({
-      where: { envelopeId_month: { envelopeId: e.id, month: m } },
-      update: { actualCents },
-      create: {
-        envelopeId: e.id,
-        month: m,
-        plannedCents: 0,
-        actualCents
-      }
+    // envelopes that are tied to a category (so we can attribute spend)
+    const envelopes = await prisma.envelope.findMany({
+        where: { profileId, isActive: true, categoryId: { not: null } },
+        select: { id: true, name: true, categoryId: true }
     });
-  });
 
-  await prisma.$transaction(ops);
+    const envelopeIdByCategoryId = new Map(
+        envelopes.map(e => [e.categoryId, e.id])
+    );
 
-  // return the updated view the same way your UI expects
-  return listEnvelopes({ month: m });
+    // pull transactions in month
+    const txs = await prisma.transaction.findMany({
+        where: {
+            profileId,
+            status,
+            postedAt: { gte: start, lt: end }
+        },
+        select: {
+            amountCents: true,
+            categoryId: true,
+            splits: { select: { categoryId: true, amountCents: true } }
+        }
+    });
+
+    // accumulate spend per envelope
+    const actualByEnvelopeId = new Map(); // envelopeId -> cents
+
+    for (const t of txs) {
+        const isRefund = t.amountCents > 0;
+        const sign = isRefund ? -1 : 1; // refund reduces actual
+
+        if (t.splits && t.splits.length) {
+            // splits are stored as absolute cents (your createTransaction enforces sum === abs(amountCents))
+            for (const s of t.splits) {
+                const envId = envelopeIdByCategoryId.get(s.categoryId);
+                if (!envId) continue;
+                actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * s.amountCents);
+            }
+        } else if (t.categoryId) {
+            const envId = envelopeIdByCategoryId.get(t.categoryId);
+            if (!envId) continue;
+            const abs = Math.abs(t.amountCents);
+            actualByEnvelopeId.set(envId, (actualByEnvelopeId.get(envId) || 0) + sign * abs);
+        }
+    }
+
+    // IMPORTANT: NO async map, NO await inside the array.
+    const ops = envelopes.map(e => {
+        const actualCents = actualByEnvelopeId.get(e.id) || 0;
+
+        return prisma.envelopeBudget.upsert({
+            where: { envelopeId_month: { envelopeId: e.id, month: m } },
+            update: { actualCents },
+            create: {
+                envelopeId: e.id,
+                month: m,
+                plannedCents: 0,
+                actualCents
+            }
+        });
+    });
+
+    await prisma.$transaction(ops);
+
+    // return the updated view the same way your UI expects
+    return listEnvelopes({ month: m });
 }
 
 // --- accounts ---
@@ -402,14 +459,15 @@ async function updateTransaction(id, { categoryId, memo, isReviewed, splits, tag
 }
 
 module.exports = {
-  listEnvelopes,
-  listCategories,
-  createEnvelope,
-  setEnvelopeBudget,
-  recalcMonth,
-  createRule,
-  listAccounts,
-  listTransactions,
-  createTransaction,
-  updateTransaction
+    listEnvelopes,
+    listCategories,
+    createEnvelope,
+    createRule,
+    listAccounts,
+    listTransactions,
+    createTransaction,
+    updateTransaction,
+    setEnvelopeBudget,
+    getMonthSummary,
+    recalcMonth,
 };

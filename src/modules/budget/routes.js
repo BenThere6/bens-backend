@@ -15,6 +15,8 @@ const requiredHandlers = [
   'updateTransaction',
   'createEnvelope',
   'setEnvelopeBudget',
+  'getMonthSummary',
+  'recalcMonth',
 ];
 
 for (const name of requiredHandlers) {
@@ -25,6 +27,17 @@ for (const name of requiredHandlers) {
 
 const router = express.Router();
 
+router.get('/_debug/routes', (_req, res) => {
+  const routes = router.stack
+    .filter(l => l.route)
+    .map(l => ({
+      path: l.route.path,
+      methods: Object.keys(l.route.methods)
+    }));
+
+  res.json(routes);
+});
+
 // example: GET /api/budget/envelopes?month=2025-09
 router.get(
     '/envelopes',
@@ -33,6 +46,16 @@ router.get(
 );
 
 router.get('/categories', controller.listCategories);
+
+router.get(
+  '/monthSummary',
+  validate(Joi.object({
+    query: Joi.object({
+      month: Joi.string().pattern(/^\d{4}-\d{2}$/).optional()
+    })
+  })),
+  controller.getMonthSummary
+);
 
 // --- Recalculate actuals for a month ---
 router.post(
