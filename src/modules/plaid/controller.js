@@ -28,4 +28,11 @@ async function webhook(req, res, next) {
   } catch (err) { next(err); }
 }
 
-module.exports = { createLinkToken, exchangePublicToken, syncItem, webhook };
+async function sandboxPublicToken(req, res, next) {
+  try {
+    const data = await service.sandboxPublicToken();
+    res.json(data);
+  } catch (err) { next(err); }
+}
+
+module.exports = { createLinkToken, exchangePublicToken, syncItem, webhook, sandboxPublicToken };

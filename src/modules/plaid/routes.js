@@ -45,4 +45,7 @@ router.post(
 // POST /api/plaid/webhook (optional now; useful later)
 router.post('/webhook', controller.webhook);
 
+// POST /api/plaid/_sandbox/publicToken  (dev-only helper)
+router.post('/_sandbox/publicToken', controller.sandboxPublicToken);
+
 module.exports = router;

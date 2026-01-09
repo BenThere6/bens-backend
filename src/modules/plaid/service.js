@@ -59,14 +59,18 @@ async function exchangePublicToken({ publicToken, institutionName }) {
   // Pull accounts and upsert into Account table
   const acctResp = await plaid.accountsGet({ access_token: accessToken });
   const accounts = acctResp.data.accounts || [];
+  const safeAccountName = (a) => (a.mask ? `${a.name} ••••${a.mask}` : a.name);
 
-  const upserts = accounts.map(a => prisma.account.upsert({
+  const upserts = accounts.map(a => {
+  const safeName = safeAccountName(a);
+
+  return prisma.account.upsert({
     where: { plaidAccountId: a.account_id },
     update: {
       profileId,
       plaidItemId: item.id,
       institution: institutionName || 'Plaid',
-      name: a.name,
+      name: safeName, // ✅ changed
       type: a.type,
       mask: a.mask || null,
       officialName: a.official_name || null,
@@ -78,14 +82,15 @@ async function exchangePublicToken({ publicToken, institutionName }) {
       plaidItemId: item.id,
       plaidAccountId: a.account_id,
       institution: institutionName || 'Plaid',
-      name: a.name,
+      name: safeName, // ✅ changed
       type: a.type,
       mask: a.mask || null,
       officialName: a.official_name || null,
       subtype: a.subtype || null,
       isArchived: false,
     },
-  }));
+  });
+});
 
   await prisma.$transaction(upserts);
 
@@ -231,4 +236,16 @@ async function syncItem({ plaidItemId, recalcMonth }) {
   return { plaidItemId: item.id, cursor, added, modified, removed, recalcMonth: month };
 }
 
-module.exports = { createLinkToken, exchangePublicToken, syncItem };
+async function sandboxPublicToken() {
+  // Common sandbox institution id used in Plaid examples; any sandbox institution works
+  const institution_id = 'ins_109508';
+
+  const resp = await plaid.sandboxPublicTokenCreate({
+    institution_id,
+    initial_products: ['transactions'],
+  });
+
+  return { public_token: resp.data.public_token, institution_id };
+}
+
+module.exports = { createLinkToken, exchangePublicToken, syncItem, sandboxPublicToken };
