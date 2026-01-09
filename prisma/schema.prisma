@@ -154,7 +154,7 @@ model Transaction {
   postedAt       DateTime
   amountCents    Int // negative = spend, positive = income/refund
   status         String // "pending" | "posted"
-  plaidId        String?          @unique
+  plaidId        String?
   pendingPlaidId String?
   merchantId     String?
   merchant       Merchant?        @relation(fields: [merchantId], references: [id])
@@ -170,6 +170,9 @@ model Transaction {
 
   @@index([profileId, postedAt])
   @@index([profileId, status])
+
+  @@unique([profileId, plaidId], name: "profileId_plaidId")
+  @@unique([profileId, pendingPlaidId], name: "profileId_pendingPlaidId")
 }
 
 model Split {
@@ -200,5 +203,6 @@ model PlaidItem {
   institutionName String?
   cursor          String?
   createdAt       DateTime  @default(now())
-  accounts        Account[] @relation("PlaidItemToAccounts") // <-- match the name above
+  updatedAt       DateTime  @updatedAt
+  accounts        Account[] @relation("PlaidItemToAccounts")
 }

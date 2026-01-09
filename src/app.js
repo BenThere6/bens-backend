@@ -17,6 +17,7 @@ app.use(morgan(env.NODE_ENV === 'development' ? 'dev' : 'combined'));
 
 app.get('/', (_req, res) => res.json({ name: 'bens-backend', version: '1.0.0' }));
 app.use('/api', routes);
+app.use('/api/plaid', require('./modules/plaid/routes'));
 
 app.use(notFound);
 app.use(errorHandler);
