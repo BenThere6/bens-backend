@@ -26,19 +26,24 @@ function plaidAmountToCents(plaidAmount) {
 async function createLinkToken({ countryCodes = ['US'], products = ['transactions'] }) {
   const profileId = await getDefaultProfileId();
 
-  // Plaid requires a stable client_user_id for the user :contentReference[oaicite:3]{index=3}
   const req = {
     user: { client_user_id: profileId },
     client_name: "Ben's Budget App",
     products,
     country_codes: countryCodes,
     language: 'en',
-    webhook: process.env.PLAID_WEBHOOK_URL || undefined,
   };
 
-  // linkTokenCreate is the standard flow :contentReference[oaicite:4]{index=4}
-  const resp = await plaid.linkTokenCreate(req);
-  return { link_token: resp.data.link_token };
+  try {
+    const resp = await plaid.linkTokenCreate(req);
+    return { link_token: resp.data.link_token };
+  } catch (err) {
+    console.error('=== PLAID LINK TOKEN ERROR ===');
+    console.error('status:', err?.response?.status);
+    console.error('data:', JSON.stringify(err?.response?.data, null, 2));
+    console.error('==============================');
+    throw err;
+  }
 }
 
 async function exchangePublicToken({ publicToken, institutionName }) {
@@ -62,35 +67,35 @@ async function exchangePublicToken({ publicToken, institutionName }) {
   const safeAccountName = (a) => (a.mask ? `${a.name} ••••${a.mask}` : a.name);
 
   const upserts = accounts.map(a => {
-  const safeName = safeAccountName(a);
+    const safeName = safeAccountName(a);
 
-  return prisma.account.upsert({
-    where: { plaidAccountId: a.account_id },
-    update: {
-      profileId,
-      plaidItemId: item.id,
-      institution: institutionName || 'Plaid',
-      name: safeName, // ✅ changed
-      type: a.type,
-      mask: a.mask || null,
-      officialName: a.official_name || null,
-      subtype: a.subtype || null,
-      isArchived: false,
-    },
-    create: {
-      profileId,
-      plaidItemId: item.id,
-      plaidAccountId: a.account_id,
-      institution: institutionName || 'Plaid',
-      name: safeName, // ✅ changed
-      type: a.type,
-      mask: a.mask || null,
-      officialName: a.official_name || null,
-      subtype: a.subtype || null,
-      isArchived: false,
-    },
+    return prisma.account.upsert({
+      where: { plaidAccountId: a.account_id },
+      update: {
+        profileId,
+        plaidItemId: item.id,
+        institution: institutionName || 'Plaid',
+        name: safeName, // ✅ changed
+        type: a.type,
+        mask: a.mask || null,
+        officialName: a.official_name || null,
+        subtype: a.subtype || null,
+        isArchived: false,
+      },
+      create: {
+        profileId,
+        plaidItemId: item.id,
+        plaidAccountId: a.account_id,
+        institution: institutionName || 'Plaid',
+        name: safeName, // ✅ changed
+        type: a.type,
+        mask: a.mask || null,
+        officialName: a.official_name || null,
+        subtype: a.subtype || null,
+        isArchived: false,
+      },
+    });
   });
-});
 
   await prisma.$transaction(upserts);
 
@@ -159,8 +164,8 @@ async function syncItem({ plaidItemId, recalcMonth }) {
 
       const postedAt =
         t.datetime ? new Date(t.datetime) :
-        t.authorized_datetime ? new Date(t.authorized_datetime) :
-        toIsoMidnight(t.date);
+          t.authorized_datetime ? new Date(t.authorized_datetime) :
+            toIsoMidnight(t.date);
 
       // If this posted tx references a pending_transaction_id, try to “upgrade” the pending row
       if (!t.pending && t.pending_transaction_id) {

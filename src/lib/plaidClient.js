@@ -17,4 +17,8 @@ const configuration = new Configuration({
   },
 });
 
+console.log('PLAID_ENV:', process.env.PLAID_ENV);
+console.log('PLAID_CLIENT_ID prefix:', process.env.PLAID_CLIENT_ID?.slice(0, 6));
+console.log('PLAID_SECRET prefix:', process.env.PLAID_SECRET?.slice(0, 6));
+
 module.exports = new PlaidApi(configuration);

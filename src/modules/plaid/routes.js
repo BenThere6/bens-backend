@@ -48,4 +48,8 @@ router.post('/webhook', controller.webhook);
 // POST /api/plaid/_sandbox/publicToken  (dev-only helper)
 router.post('/_sandbox/publicToken', controller.sandboxPublicToken);
 
+router.get('/oauth-return', (req, res) => {
+  res.send('Bank auth complete. You can close this tab and return to the Plaid test page.');
+});
+
 module.exports = router;

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Plaid Test</title>
+    <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 24px;
+        }
+
+        button {
+            padding: 10px 16px;
+            font-size: 16px;
+        }
+
+        pre {
+            background: #f4f4f4;
+            padding: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Plaid Test</h1>
+    <button id="connectBtn">Connect Bank</button>
+    <pre id="out"></pre>
+
+    <script>
+        const API_BASE = 'http://localhost:4000';
+        const out = document.getElementById('out');
+
+        function log(obj) {
+            out.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+            console.log(obj);
+        }
+
+        async function post(path, body = {}) {
+            const res = await fetch(`${API_BASE}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+
+            const text = await res.text();
+
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch {
+                data = { raw: text };
+            }
+
+            if (!res.ok) {
+                throw new Error(JSON.stringify({
+                    status: res.status,
+                    body: data
+                }, null, 2));
+            }
+
+            return data;
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            try {
+                log('Creating link token...');
+
+                if (typeof Plaid === 'undefined') {
+                    log('Error: Plaid script did not load.');
+                    return;
+                }
+
+                const tokenResp = await post('/api/plaid/linkToken', {
+                    countryCodes: ['US'],
+                    products: ['transactions']
+                });
+
+                log({
+                    step: 'Link token created',
+                    tokenResp
+                });
+
+                const handler = Plaid.create({
+                    token: tokenResp.link_token,
+
+                    onSuccess: async (public_token, metadata) => {
+                        try {
+                            log({
+                                step: 'Link success',
+                                institution: metadata.institution,
+                                accounts: metadata.accounts
+                            });
+
+                            const exchangeResp = await post('/api/plaid/exchange', {
+                                publicToken: public_token,
+                                institutionName: metadata.institution ? metadata.institution.name : null
+                            });
+
+                            log({
+                                step: 'Exchange success',
+                                exchangeResp
+                            });
+                        } catch (err) {
+                            log(`Exchange error: ${err.message}`);
+                        }
+                    },
+
+                    onExit: (err, metadata) => {
+                        log({
+                            step: 'Exited Link',
+                            err: err ? {
+                                error_code: err.error_code,
+                                error_message: err.error_message,
+                                error_type: err.error_type
+                            } : null,
+                            metadata
+                        });
+                    }
+                });
+
+                handler.open();
+            } catch (err) {
+                log(`Error: ${err.message}`);
+            }
+        });
+    </script>
+</body>
+
+</html>
