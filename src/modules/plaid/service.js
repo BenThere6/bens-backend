@@ -115,6 +115,14 @@ async function exchangePublicToken({ publicToken, institutionName }) {
 async function syncItem({ plaidItemId, recalcMonth }) {
   const profileId = await getDefaultProfileId();
 
+  console.log('SYNC plaidItemId received:', plaidItemId);
+  console.log('DATABASE_URL at runtime:', process.env.DATABASE_URL);
+
+  const allItems = await prisma.plaidItem.findMany({
+    select: { id: true, itemId: true, profileId: true },
+  });
+  console.log('PlaidItems visible to server:', allItems);
+
   const item = await prisma.plaidItem.findUnique({ where: { id: plaidItemId } });
   if (!item) {
     const err = new Error('PlaidItem not found');
